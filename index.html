@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>--</title>
+    <style>
+        @import url('./css2.css');
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body,
+        html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d0f12;
+            font-family: -apple-system, sans-serif;
+            color: #fff;
+        }
+
+        #config-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 15, 18, 0.96);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .config-box {
+            background: #15191e;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            border: 1px solid #222831;
+        }
+
+        .config-box h2 {
+            margin-bottom: 20px;
+            text-align: center;
+            color: #2ecc71;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #8a95a5;
+            font-size: 0.9rem;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            background: #1f262e;
+            border: 1px solid #2c3642;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #253342;
+            border: 1px solid #2ecc71;
+            border-radius: 6px;
+            color: #9cb2cd;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #2c3d50;
+            color: #fff;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 还原图片中厚实、略带复古科技感的粗体字 */
+        #hud {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #percent-text {
+            font-family: 'Space Mono', monospace;
+            font-size: 13vw;
+            color: #383f47;
+            font-weight: 900;
+            letter-spacing: -3px;
+        }
+
+        #reset-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: auto;
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #444;
+            font-size: 0.8rem;
+            border-radius: 4px;
+        }
+
+        #reset-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #777;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="config-overlay">
+        <div class="config-box">
+            <h2>设置时间区间</h2>
+            <div class="input-group">
+                <label for="start-time">开始时间</label>
+                <input type="datetime-local" id="start-time">
+            </div>
+            <div class="input-group">
+                <label for="end-time">结束时间</label>
+                <input type="datetime-local" id="end-time">
+            </div>
+            <button id="start-btn">开始</button>
+        </div>
+    </div>
+
+    <canvas id="time-canvas"></canvas>
+
+    <div id="hud">
+        <div id="percent-text">0%</div>
+    </div>
+
+    <button id="reset-btn" style="display:none;">重置时间</button>
+
+    <script>
+        const canvas = document.getElementById('time-canvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('config-overlay');
+        const percentText = document.getElementById('percent-text');
+        const resetBtn = document.getElementById('reset-btn');
+
+        let startTime, endTime, totalSeconds, timerId;
+
+        const now = new Date();
+        let targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const endOfTodayTest = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 30, 0);
+        if (now.getTime() > endOfTodayTest.getTime()) {
+            targetDate.setDate(targetDate.getDate() + 1);
+        }
+
+        const defaultStart = new Date();
+        const defaultEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 17, 30, 0);
+
+        const tzOffset = now.getTimezoneOffset() * 60000;
+        document.getElementById('start-time').value = new Date(defaultStart - tzOffset).toISOString().slice(0, 16);
+        document.getElementById('end-time').value = new Date(defaultEnd - tzOffset).toISOString().slice(0, 16);
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth * window.devicePixelRatio;
+            canvas.height = window.innerHeight * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            const sVal = document.getElementById('start-time').value;
+            const eVal = document.getElementById('end-time').value;
+            if (!sVal || !eVal) return alert('请填写完整时间！');
+
+            startTime = new Date(sVal).getTime();
+            endTime = new Date(eVal).getTime();
+            if (endTime <= startTime) return alert('结束时间必须晚于开始时间！');
+
+            localStorage.setItem('time_flow_start', startTime);
+            localStorage.setItem('time_flow_end', endTime);
+
+            initTracking();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            clearInterval(timerId);
+            localStorage.removeItem('time_flow_start');
+            localStorage.removeItem('time_flow_end');
+            overlay.style.display = 'flex';
+            resetBtn.style.display = 'none';
+        });
+
+        function initTracking() {
+            totalSeconds = Math.floor((endTime - startTime) / 1000);
+            overlay.style.display = 'none';
+            resetBtn.style.display = 'block';
+            resizeCanvas();
+
+            update();
+            timerId = setInterval(update, 1000);
+        }
+
+        function update() {
+            const current = Date.now();
+            let elapsed = Math.floor((current - startTime) / 1000);
+            if (elapsed < 0) elapsed = 0;
+            if (elapsed > totalSeconds) elapsed = totalSeconds;
+
+            // 精确计算百分比并在大字中渲染
+            let percent = (elapsed / totalSeconds) * 100;
+            percentText.textContent = percent.toFixed(3) + '%';
+
+            draw(elapsed);
+
+            if (current >= endTime) {
+                clearInterval(timerId);
+                percentText.textContent = "100%";
+            }
+        }
+
+        function draw(elapsed = 0) {
+            const w = window.innerWidth, h = window.innerHeight;
+            ctx.clearRect(0, 0, w, h);
+
+            // 极深暗色底色
+            ctx.fillStyle = '#0a0c0f';
+            ctx.fillRect(0, 0, w, h);
+
+            if (!totalSeconds) return;
+
+            const aspect = w / h;
+            let cols = Math.ceil(Math.sqrt(totalSeconds * aspect));
+            let rows = Math.ceil(totalSeconds / cols);
+            while (cols * rows < totalSeconds) cols++;
+
+            const bw = w / cols, bh = h / rows;
+
+            for (let i = 0; i < totalSeconds; i++) {
+                const col = i % cols, row = Math.floor(i / cols);
+                const x = col * bw + 0.5;
+                const y = row * bh + 0.5;
+                const blockW = bw - 1;
+                const blockH = bh - 1;
+
+                if (i === elapsed) {
+                    // 【现在】当前正走到的这一秒：亮起耀眼的荧光绿高亮色
+                    ctx.fillStyle = '#2ecc71';
+                    ctx.fillRect(x, y, blockW, blockH);
+                } else if (i < elapsed) {
+                    // 【过去】已经走过的时间：还原图中的暗光墨绿色（上方带有一点渐变亮感）
+                    let grad = ctx.createLinearGradient(x, y, x, y + blockH);
+                    grad.addColorStop(0, '#1c3d28');
+                    grad.addColorStop(1, '#163e26');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(x, y, blockW, blockH);
+                } else {
+                    // 【未来】未到的时间：近乎全黑的暗冷色
+                    ctx.fillStyle = '#1b1e22';
+                    ctx.fillRect(x, y, blockW, blockH);
+                }
+            }
+        }
+
+        const savedStart = localStorage.getItem('time_flow_start');
+        const savedEnd = localStorage.getItem('time_flow_end');
+        if (savedStart && savedEnd) {
+            startTime = parseInt(savedStart);
+            endTime = parseInt(savedEnd);
+            initTracking();
+        }
+    </script>
+</body>
+
+</html>
